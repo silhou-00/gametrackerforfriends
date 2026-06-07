@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PointDrop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@400;500;700;800;900&family=Lato:ital,wght@0,400;0,700;0,900;1,400&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)' opacity='0.06'/%3E%3C/svg%3E"),
+      radial-gradient(135% 100% at 50% -8%, #3C5446 0%, #2C4034 46%, #1C2922 100%);
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 28px; font-family: 'Lato', system-ui, sans-serif;
+  }
+  #root { transform-origin: center; }
+
+  /* parchment grain — subtle tabletop paper texture */
+  .pd-paper {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  }
+
+  /* hide scrollbars inside the device */
+  #root *::-webkit-scrollbar { width: 0; height: 0; display: none; }
+  #root * { scrollbar-width: none; }
+
+  /* inputs */
+  .pd-input {
+    width: 100%; border: 1.5px solid rgba(44,54,63,0.12); background: #fff;
+    border-radius: 14px; padding: 13px 15px; font: 600 15px/1.2 'Lato', sans-serif;
+    color: #2C363F; outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  .pd-input::placeholder { color: rgba(44,54,63,0.35); font-weight: 400; }
+  .pd-input:focus { border-color: #D97757; box-shadow: 0 0 0 3px rgba(217,119,87,0.14); }
+
+  /* press feedback */
+  .pd-btn { transition: transform .08s ease; }
+  .pd-btn:active { transform: scale(0.96); }
+  .pd-tap { transition: transform .08s ease, background .15s; }
+  .pd-tap:active { transform: scale(0.9); }
+  .pd-card-tap { transition: transform .1s ease, box-shadow .15s; }
+  .pd-card-tap:active { transform: scale(0.985); }
+
+  /* screen transitions — transform-only so content is ALWAYS painted
+     (never gate visibility behind opacity; preview/PDF timelines can freeze) */
+  @keyframes pdFwd { from { transform: translateX(26px); } to { transform: translateX(0); } }
+  @keyframes pdBack { from { transform: translateX(-26px); } to { transform: translateX(0); } }
+  @keyframes pdFade { from { transform: translateY(8px); } to { transform: translateY(0); } }
+  .pd-screen-fwd { animation: pdFwd .26s cubic-bezier(.2,.7,.3,1) both; }
+  .pd-screen-back { animation: pdBack .26s cubic-bezier(.2,.7,.3,1) both; }
+  .pd-screen-fade { animation: pdFade .24s ease both; }
+
+  /* sheets */
+  @keyframes pdSheetIn { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  @keyframes pdSheetOut { from { transform: translateY(0); } to { transform: translateY(100%); } }
+  .pd-sheet-in { animation: pdSheetIn .3s cubic-bezier(.2,.8,.2,1) both; }
+  .pd-sheet-out { animation: pdSheetOut .25s ease both; }
+  /* centered modal */
+  @keyframes pdModalIn { from { transform: scale(.93) translateY(8px); } to { transform: scale(1) translateY(0); } }
+  @keyframes pdModalOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(.96); } }
+  .pd-modal-in { animation: pdModalIn .26s cubic-bezier(.2,.9,.3,1) both; }
+  .pd-modal-out { animation: pdModalOut .2s ease both; }
+  @keyframes pdFadeIn { from { transform: translateY(10px); } to { transform: translateY(0); } }
+  @keyframes pdFadeOut { from { opacity: 1; } to { opacity: 0; } }
+  .pd-fade-in { animation: pdFadeIn .28s cubic-bezier(.2,.8,.2,1) both; }
+  .pd-fade-out { animation: pdFadeOut .22s ease both; }
+
+  /* toast */
+  @keyframes pdToast { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .pd-toast { animation: pdToast .3s cubic-bezier(.2,.8,.2,1) both; }
+
+  /* misc */
+  @keyframes pdSpin { to { transform: rotate(360deg); } }
+  .pd-spin { animation: pdSpin .8s linear infinite; }
+  @keyframes pdPing { 0% { transform: scale(1); opacity: .6; } 80%,100% { transform: scale(2.4); opacity: 0; } }
+  .pd-ping { animation: pdPing 1.4s cubic-bezier(0,0,.2,1) infinite; }
+  @keyframes pdPop { 0% { transform: scale(0.72); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
+  .pd-pop { animation: pdPop .45s cubic-bezier(.34,1.56,.64,1) both; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="android-frame.jsx"></script>
+  <script type="text/babel" src="tokens.jsx"></script>
+  <script type="text/babel" src="ui.jsx"></script>
+  <script type="text/babel" src="rules.jsx"></script>
+  <script type="text/babel" src="library.jsx"></script>
+  <script type="text/babel" src="play.jsx"></script>
+  <script type="text/babel" src="scoreboard.jsx"></script>
+  <script type="text/babel" src="history.jsx"></script>
+  <script type="text/babel" src="settings.jsx"></script>
+  <script type="text/babel" src="app.jsx"></script>
+
+  <script>
+    // scale the device to fit smaller viewports
+    function fitDevice() {
+      const root = document.getElementById('root');
+      const pad = 40;
+      const s = Math.min(1, (window.innerHeight - pad) / 892, (window.innerWidth - pad) / 412);
+      root.style.transform = `scale(${s})`;
+    }
+    window.addEventListener('resize', fitDevice);
+    setTimeout(fitDevice, 300);
+  </script>
+</body>
+</html>

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PointDrop · Match Report</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@400;700;800&family=Lato:wght@400;700&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 14px; }
+  body {
+    font-family: 'Lato', sans-serif;
+    background: #FAF7F2;
+    color: #2C363F;
+    padding: 48px 56px;
+    line-height: 1.55;
+  }
+
+  /* ── Header ─────────────────────────────── */
+  .header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    padding-bottom: 18px;
+    border-bottom: 2px solid #B08A4F;
+  }
+  .brand {
+    font-family: 'Roboto Slab', serif;
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #B08A4F;
+    margin-bottom: 6px;
+  }
+  .match-title {
+    font-family: 'Roboto Slab', serif;
+    font-weight: 800;
+    font-size: 26px;
+    letter-spacing: -0.3px;
+    color: #2C363F;
+    line-height: 1.2;
+  }
+  .match-meta {
+    font-size: 12px;
+    color: rgba(44,54,63,0.6);
+    margin-top: 5px;
+  }
+  .integrity-badge {
+    text-align: right;
+    min-width: 160px;
+  }
+  .badge-pill {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    padding: 5px 12px;
+    border-radius: 100px;
+    border: 1px solid;
+  }
+  .badge-valid   { color: #4A7C59; background: #DCE8DE; border-color: #4A7C59; }
+  .badge-invalid { color: #B0413E; background: #EEDAD7; border-color: #B0413E; }
+  .badge-unsigned{ color: #D4A373; background: #EFE2C7; border-color: #D4A373; }
+  .hash-text {
+    font-size: 9px;
+    color: rgba(44,54,63,0.4);
+    margin-top: 6px;
+    letter-spacing: 1px;
+    font-family: monospace;
+  }
+
+  /* ── Divider ─────────────────────────────── */
+  .ornament {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 22px 0;
+    color: #B08A4F;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+  }
+  .ornament::before, .ornament::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(44,54,63,0.15);
+  }
+  .diamond { width: 6px; height: 6px; transform: rotate(45deg); background: #B08A4F; display: inline-block; }
+
+  /* ── Standings ───────────────────────────── */
+  .section-title {
+    font-family: 'Roboto Slab', serif;
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: rgba(44,54,63,0.52);
+    margin-bottom: 12px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 6px;
+  }
+  .standings-table th {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: rgba(44,54,63,0.45);
+    padding: 6px 10px;
+    text-align: left;
+    border-bottom: 1px solid rgba(44,54,63,0.13);
+  }
+  .standings-table td {
+    padding: 11px 10px;
+    border-bottom: 1px solid rgba(44,54,63,0.07);
+    vertical-align: middle;
+  }
+  .standings-table tr.winner-row td { background: #F5E0D5; }
+  .rank { font-family: 'Roboto Slab', serif; font-weight: 800; font-size: 12px; color: rgba(44,54,63,0.35); width: 32px; }
+  .rank.first { color: #D97757; }
+  .player-name { font-weight: 700; font-size: 14px; }
+  .player-name.winner { color: #D97757; }
+  .score-cell { font-family: 'Roboto Slab', serif; font-weight: 800; font-size: 18px; text-align: right; }
+  .score-cell.winner { color: #D97757; }
+  .winner-label {
+    font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: #B08A4F; padding: 2px 7px; background: #EFE2C7; border-radius: 100px;
+    margin-left: 8px; vertical-align: middle;
+  }
+
+  /* ── Log ledger ──────────────────────────── */
+  .log-table th {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: rgba(44,54,63,0.45);
+    padding: 6px 10px;
+    text-align: left;
+    border-bottom: 1px solid rgba(44,54,63,0.13);
+  }
+  .log-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid rgba(44,54,63,0.06);
+    font-size: 12px;
+    vertical-align: middle;
+  }
+  .delta-cell {
+    font-weight: 700;
+    font-size: 13px;
+    width: 52px;
+    text-align: center;
+  }
+  .delta-pos { color: #4A7C59; }
+  .delta-neg { color: #B0413E; }
+  .delta-neutral { color: rgba(44,54,63,0.5); }
+  .round-badge {
+    display: inline-block;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.8px;
+    padding: 2px 7px; background: #EDE8DF; border-radius: 100px;
+    color: rgba(44,54,63,0.6);
+  }
+
+  /* ── Footer ──────────────────────────────── */
+  .footer {
+    margin-top: 36px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(44,54,63,0.13);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    color: rgba(44,54,63,0.4);
+  }
+  .footer-brand { font-family: 'Roboto Slab', serif; font-weight: 800; color: #D97757; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+
+<!-- ── Header ────────────────────────────────── -->
+<div class="header">
+  <div>
+    <div class="brand">PointDrop · Match Report</div>
+    <div class="match-title">{{ match.mode_name or match.title or "Match" }}</div>
+    <div class="match-meta">
+      {{ formatted_date }} &nbsp;·&nbsp;
+      {{ players | length }} players &nbsp;·&nbsp;
+      Round {{ match.current_round }}
+    </div>
+  </div>
+  <div class="integrity-badge">
+    {% if integrity == "valid" %}
+      <span class="badge-pill badge-valid">&#10003; Signed</span>
+    {% elif integrity == "invalid" %}
+      <span class="badge-pill badge-invalid">&#9888; Tampered</span>
+    {% else %}
+      <span class="badge-pill badge-unsigned">~ Unsigned</span>
+    {% endif %}
+    {% if match.hash_signature %}
+    <div class="hash-text">{{ match.hash_signature[:20] }}…</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Standings ──────────────────────────────── -->
+<div class="section-title">Final standings</div>
+<table class="standings-table">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Player</th>
+      <th style="text-align:right">Score</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in standings %}
+    <tr {% if loop.index == 1 %}class="winner-row"{% endif %}>
+      <td class="rank {% if loop.index == 1 %}first{% endif %}">{{ loop.index }}</td>
+      <td>
+        <span class="player-name {% if loop.index == 1 %}winner{% endif %}">{{ s.name }}</span>
+        {% if loop.index == 1 %}<span class="winner-label">Winner</span>{% endif %}
+      </td>
+      <td class="score-cell {% if loop.index == 1 %}winner{% endif %}">{{ s.score }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="ornament"><span class="diamond"></span></div>
+
+<!-- ── Log ledger ──────────────────────────────── -->
+{% if logs %}
+<div class="section-title">Score log · {{ logs | length }} turns</div>
+<table class="log-table">
+  <thead>
+    <tr>
+      <th>Δ</th>
+      <th>Player</th>
+      <th>Action</th>
+      <th>Round</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for log in logs %}
+    <tr>
+      <td class="delta-cell {% if log.delta_value > 0 %}delta-pos{% elif log.delta_value < 0 %}delta-neg{% else %}delta-neutral{% endif %}">
+        {% if log.delta_value > 0 %}+{% endif %}{{ log.delta_value }}
+      </td>
+      <td>{{ player_names.get(log.player_id, '—') }}</td>
+      <td style="color: rgba(44,54,63,0.6)">{{ log.action_type | replace('_', ' ') }}</td>
+      <td><span class="round-badge">R{{ log.round }}</span></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<!-- ── Footer ──────────────────────────────── -->
+<div class="footer">
+  <span><span class="footer-brand">PointDrop</span> &nbsp;·&nbsp; Local-first game score tracker</span>
+  <span>Generated {{ formatted_date }}</span>
+</div>
+
+</body>
+</html>
