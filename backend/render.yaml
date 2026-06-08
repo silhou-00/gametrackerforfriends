@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: pointdrop-backend
+    env: python
+    rootDir: backend
+    buildCommand: apt-get install -y libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 libffi-dev && pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: AGORA_APP_ID
+        sync: false
+      - key: AGORA_APP_CERTIFICATE
+        sync: false
+      - key: AGORA_CUSTOMER_ID
+        sync: false
+      - key: AGORA_CUSTOMER_SECRET
+        sync: false
+      - key: AGORA_CHANNEL
+        value: pointdrop
+      - key: WEBHOOK_BASE_URL
+        sync: false
