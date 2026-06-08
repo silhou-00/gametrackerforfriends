@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Player } from '../engine/types';
 
 export const VOICE_LLM_KEY_STORAGE = 'pointdrop_voice_llm_key';
@@ -17,9 +16,9 @@ interface VoiceSessionOpts {
 }
 
 /**
- * Manages an Agora ConvoAI voice session for the active scoreboard.
- * When enabled, spawns an agent on the backend, then polls for commands every 2 s.
- * Commands are resolved to player IDs by fuzzy name match and applied locally.
+ * Registers the active match with the backend (which sets Agora RTM presence),
+ * then polls for voice commands every 2s and applies them locally.
+ * The R1 device / Agora ConvoAI agent handles all voice processing.
  */
 export function useVoiceSession({
   enabled,
@@ -32,7 +31,6 @@ export function useVoiceSession({
   nextRound,
 }: VoiceSessionOpts) {
   const [active, setActive] = useState(false);
-  const [agentId, setAgentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
@@ -59,39 +57,25 @@ export function useVoiceSession({
     } else if (cmd.action === 'next_round') {
       await nextRound();
     }
-    // end_match is handled server-side by the rules engine triggering on score
   }, [resolvePlayer, addPoint, nextRound]);
 
   const pollCommands = useCallback(async () => {
     if (!matchId || !serverUrl) return;
     try {
-      const res = await fetch(`${serverUrl.trim()}/api/voice/commands/${matchId}`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      const res = await fetch(`${serverUrl.trim()}/api/voice/commands/${matchId}`);
       if (!res.ok) return;
       const { commands } = await res.json();
       if (commands?.length) {
-        for (const cmd of commands) {
-          await applyCommand(cmd);
-        }
+        for (const cmd of commands) await applyCommand(cmd);
       }
     } catch {
-      // backend unreachable — silently skip
+      // backend unreachable — silently skip poll
     }
   }, [matchId, serverUrl, applyCommand]);
 
   const startSession = useCallback(async () => {
     if (!matchId || !serverUrl || !enabled) return;
     try {
-      const llmApiKey = await AsyncStorage.getItem(VOICE_LLM_KEY_STORAGE) || '';
-      const llmModel = await AsyncStorage.getItem(VOICE_LLM_MODEL_STORAGE) || 'gpt-4o-mini';
-
-      if (!llmApiKey) {
-        setError('LLM API key not configured in Settings → Voice');
-        return;
-      }
-
       const res = await fetch(`${serverUrl.trim()}/api/voice/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -100,25 +84,21 @@ export function useVoiceSession({
           players: players.map(p => ({ id: p.id, name: p.name })),
           mode_name: modeName,
           rules_summary: rulesSummary,
-          llm_api_key: llmApiKey,
-          llm_model: llmModel,
         }),
       });
 
       if (!res.ok) {
         const { detail } = await res.json().catch(() => ({ detail: 'Unknown error' }));
-        setError(detail || 'Failed to start voice session');
+        if (mountedRef.current) setError(detail || 'Failed to register match');
         return;
       }
 
-      const { agent_id } = await res.json();
       if (mountedRef.current) {
-        setAgentId(agent_id);
         setActive(true);
         setError(null);
       }
-    } catch (e: any) {
-      if (mountedRef.current) setError('Cannot reach backend for voice session');
+    } catch {
+      if (mountedRef.current) setError('Cannot reach backend — check Settings → Host server');
     }
   }, [matchId, serverUrl, enabled, players, modeName, rulesSummary]);
 
@@ -127,30 +107,21 @@ export function useVoiceSession({
     try {
       await fetch(`${serverUrl.trim()}/api/voice/stop/${matchId}`, { method: 'DELETE' });
     } catch { /* ignore */ }
-    if (mountedRef.current) {
-      setActive(false);
-      setAgentId(null);
-    }
+    if (mountedRef.current) setActive(false);
   }, [matchId, serverUrl]);
 
-  // Lifecycle: start/stop when enabled changes
+  // Start/stop when enabled changes
   useEffect(() => {
-    if (enabled && matchId) {
-      startSession();
-    }
-    return () => {
-      if (enabled && matchId) stopSession();
-    };
+    if (enabled && matchId) startSession();
+    return () => { if (enabled && matchId) stopSession(); };
   }, [enabled, matchId]);
 
-  // Polling: every 2 s when active
+  // Poll every 2s when active
   useEffect(() => {
     if (!active) return;
     pollRef.current = setInterval(pollCommands, 2000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [active, pollCommands]);
 
-  return { active, agentId, error };
+  return { active, error };
 }

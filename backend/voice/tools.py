@@ -1,32 +1,50 @@
 """
-PointDrop tool definitions for the ConvoAI LLM.
-The LLM calls these when it recognises a scoring intent from speech.
+PointDrop tool definitions for the Agora ConvoAI agent.
+Hit GET /api/voice/agent-config to get the ready-made JSON for the Agora team.
 """
 
+import json
+
 POINTDROP_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_match",
+            "description": (
+                "Call this FIRST at the start of every conversation to get the active match. "
+                "Returns match_id, player names, and game mode. "
+                "Use the returned match_id in all subsequent tool calls. "
+                "Also check context.presence for pre-loaded match data before calling this."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
     {
         "type": "function",
         "function": {
             "name": "add_score",
             "description": (
                 "Add or subtract points for a player. "
-                "Use positive delta to add, negative to subtract. "
-                "Call this whenever the user says something like "
-                "'Player 1 plus 3' or 'subtract 2 from Alice'."
+                "Positive delta adds points, negative subtracts. "
+                "Examples: 'Player 1 plus 3', 'subtract 2 from Alice', 'Bob gets 5 points'."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "match_id": {
+                        "type": "string",
+                        "description": "Match ID from get_current_match or context.presence",
+                    },
                     "player_name": {
                         "type": "string",
-                        "description": "Exact or partial name of the player as spoken",
+                        "description": "Player name as spoken — partial match is fine",
                     },
                     "delta": {
                         "type": "integer",
                         "description": "Points to add (positive) or subtract (negative)",
                     },
                 },
-                "required": ["player_name", "delta"],
+                "required": ["match_id", "player_name", "delta"],
             },
         },
     },
@@ -34,53 +52,80 @@ POINTDROP_TOOLS = [
         "type": "function",
         "function": {
             "name": "next_round",
-            "description": (
-                "Advance to the next round. "
-                "Call when the user says 'next round', 'new round', or similar."
-            ),
-            "parameters": {"type": "object", "properties": {}, "required": []},
+            "description": "Advance to the next round. Call when user says 'next round', 'new round', or similar.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "match_id": {
+                        "type": "string",
+                        "description": "Match ID from get_current_match or context.presence",
+                    },
+                },
+                "required": ["match_id"],
+            },
         },
     },
     {
         "type": "function",
         "function": {
             "name": "get_scores",
-            "description": "Read back the current scores for all players.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
+            "description": "Read back the current scores. Call when user asks 'what are the scores?' or similar.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "match_id": {
+                        "type": "string",
+                        "description": "Match ID from get_current_match or context.presence",
+                    },
+                },
+                "required": ["match_id"],
+            },
         },
     },
     {
         "type": "function",
         "function": {
             "name": "end_match",
-            "description": (
-                "End the match and declare a winner. "
-                "Call when the user says 'end the game', 'finish', or when a target score is reached."
-            ),
+            "description": "End the match. Call when user says 'end game', 'game over', or declares a winner.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "match_id": {
+                        "type": "string",
+                        "description": "Match ID from get_current_match or context.presence",
+                    },
                     "winner_name": {
                         "type": "string",
-                        "description": "Name of the winning player (optional)",
-                    }
+                        "description": "Winning player name (optional)",
+                    },
                 },
-                "required": [],
+                "required": ["match_id"],
             },
         },
     },
 ]
 
+SYSTEM_PROMPT = (
+    "You are PointDrop's AI scorekeeper. "
+    "At the start of every conversation: "
+    "1. Check context.presence for match data (match_id, players, mode). "
+    "2. If not present, call get_current_match to retrieve it. "
+    "Always use the match_id from step 1 or 2 in every subsequent tool call. "
+    "Confirm every scoring action in one short sentence. "
+    "Never invent player names — only use names from the match data."
+)
 
-def build_system_prompt(players: list[dict], mode_name: str, rules_summary: str | None) -> str:
-    player_list = ", ".join(p["name"] for p in players)
-    base = (
-        f"You are PointDrop's AI scorekeeper for a game of '{mode_name}'. "
-        f"The players are: {player_list}. "
-        "Listen for score updates, round changes, or requests to read scores. "
-        "Respond with very short confirmations — no more than one sentence. "
-        "Use the provided tools to record every scoring action."
-    )
-    if rules_summary:
-        base += f" Rules: {rules_summary}."
-    return base
+
+def get_agent_config_json(webhook_base_url: str) -> dict:
+    return {
+        "name": "PointDrop Score Tracker",
+        "system_prompt": SYSTEM_PROMPT,
+        "tools": POINTDROP_TOOLS,
+        "tool_call_url": f"{webhook_base_url.rstrip('/')}/api/voice/tool-call",
+        "advanced_features": {
+            "enable_rtm": True,
+            "enable_bhvs": True,
+        },
+        "asr": {"language": "en-US"},
+        "greeting": "PointDrop scorekeeper ready. Starting a match?",
+    }
