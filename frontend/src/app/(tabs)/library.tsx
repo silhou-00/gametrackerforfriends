@@ -56,9 +56,13 @@ function CreateGameModal({ onClose }: { onClose: () => void }) {
           autoFocus
         />
         <View style={styles.modalBtns}>
-          <Button full tone="ghost" onPress={onClose}>Cancel</Button>
+          <View style={{ flex: 1 }}>
+            <Button full tone="ghost" onPress={onClose}>Cancel</Button>
+          </View>
           <View style={{ width: 10 }} />
-          <Button full onPress={submit}>Create &amp; add mode</Button>
+          <View style={{ flex: 1 }}>
+            <Button full onPress={submit}>Create &amp; add mode</Button>
+          </View>
         </View>
       </View>
     </Modal>

@@ -6,7 +6,7 @@ import * as matchesDb from '../db/matches';
 import * as playersDb from '../db/players';
 import * as logsDb from '../db/auditLogs';
 import { uid } from '../db/client';
-import { evaluateRules, buildContext, winnerId, isRoundBased, signMatch as signMatchHmac } from '../engine/rulesEngine';
+import { evaluateRules, buildContext, winnerId, isRoundBased } from '../engine/rulesEngine';
 import { signMatch } from '../engine/hmac';
 
 export interface ToastOpts {
@@ -38,9 +38,14 @@ interface AppContextType {
   addPoint: (playerId: string, delta: number) => Promise<void>;
   nextRound: () => Promise<void>;
   rematch: () => Promise<void>;
+  finishMatchEarly: () => Promise<void>;
   endToHome: () => void;
   confirmQuit: () => void;
   wipeAll: () => Promise<void>;
+
+  // Round win event
+  roundWinEvent: { winnerName: string; round: number } | null;
+  clearRoundWinEvent: () => void;
 
   // Toast
   toast: ToastOpts | null;
@@ -54,8 +59,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [modes, setModes] = useState<GameMode[]>([]);
   const [matches, setMatches] = useState<(Match & { players: Player[]; logs: AuditLog[] })[]>([]);
   const [activeMatch, setActiveMatch] = useState<ActiveMatch | null>(null);
+  const [roundWinEvent, setRoundWinEvent] = useState<{ winnerName: string; round: number } | null>(null);
   const [toast, setToast] = useState<ToastOpts | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearRoundWinEvent = useCallback(() => setRoundWinEvent(null), []);
 
   const showToast = useCallback((opts: ToastOpts) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -133,7 +141,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     roster: string[],
     paired: boolean
   ) => {
-    const match = await matchesDb.createMatch(mode.id, mode.game_id, mode.name);
+    const match = await matchesDb.createMatch(mode.id, mode.name, mode.name);
     const players = await Promise.all(roster.map(name => playersDb.addPlayer(match.id, name)));
     const roundBased = isRoundBased(mode.rules);
     setActiveMatch({
@@ -154,7 +162,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
     const logs = [...activeMatch.logs, newLog];
 
-    const ctx = buildContext(logs, players, playerId, round, activeMatch.roundBased, roundWins);
+    const ctx = buildContext(logs, players, playerId, round, mode.rules.round_scoped_scores ?? false, roundWins);
     const cons = evaluateRules(mode.rules, 'on_point_added', ctx);
 
     if (cons) {
@@ -162,7 +170,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const wId = winnerId(cons, ctx, playerId);
         const hash = await signMatch(match.id, logs);
         await matchesDb.finishMatch(match.id, hash, wId, round);
-        setActiveMatch(prev => prev ? { ...prev, logs, match: { ...prev.match, status: 'finished' }, hash, winnerId: wId } : prev);
+        if (mode.rules.auto_reset) {
+          const nm = await matchesDb.createMatch(mode.id, mode.name, mode.name);
+          const np = await Promise.all(players.map(p => playersDb.addPlayer(nm.id, p.name)));
+          showToast({ msg: `${players.find(p => p.id === wId)?.name} wins · resetting`, tone: 'success', icon: 'trophy' });
+          setActiveMatch({ match: nm, mode, players: np, logs: [], roundWins: {}, roundBased: activeMatch.roundBased, paired: activeMatch.paired });
+        } else {
+          setActiveMatch(prev => prev ? { ...prev, logs, match: { ...prev.match, status: 'finished' }, hash, winnerId: wId } : prev);
+        }
         return;
       }
 
@@ -172,22 +187,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const wonRound = round;
         await matchesDb.advanceRound(match.id);
         await matchesDb.updateRoundWins(match.id, newRoundWins);
-        showToast({ msg: `${players.find(p => p.id === wId)?.name} takes round ${wonRound}`, tone: 'success', icon: 'trophy' });
 
         const newRound = round + 1;
-        const ctx2 = buildContext(logs, players, wId, newRound, activeMatch.roundBased, newRoundWins);
+        const ctx2 = buildContext(logs, players, wId, newRound, mode.rules.round_scoped_scores ?? false, newRoundWins);
         const end = evaluateRules(mode.rules, 'on_round_won', ctx2);
         if (end && end.action === 'END_MATCH') {
           const endWId = winnerId(end, ctx2, wId);
           const hash = await signMatch(match.id, logs);
           await matchesDb.finishMatch(match.id, hash, endWId, newRound);
-          setActiveMatch(prev => prev ? {
-            ...prev, logs,
-            match: { ...prev.match, current_round: newRound, status: 'finished' },
-            roundWins: newRoundWins, hash, winnerId: endWId,
-          } : prev);
+          if (mode.rules.auto_reset) {
+            const nm = await matchesDb.createMatch(mode.id, mode.name, mode.name);
+            const np = await Promise.all(players.map(p => playersDb.addPlayer(nm.id, p.name)));
+            showToast({ msg: `${players.find(p => p.id === endWId)?.name} wins · resetting`, tone: 'success', icon: 'trophy' });
+            setActiveMatch({ match: nm, mode, players: np, logs: [], roundWins: {}, roundBased: activeMatch.roundBased, paired: activeMatch.paired });
+          } else {
+            setActiveMatch(prev => prev ? {
+              ...prev, logs,
+              match: { ...prev.match, current_round: newRound, status: 'finished' },
+              roundWins: newRoundWins, hash, winnerId: endWId,
+            } : prev);
+          }
           return;
         }
+        // Round won, match continues — show round win page
+        setRoundWinEvent({ winnerName: players.find(p => p.id === wId)?.name ?? '?', round: wonRound });
         setActiveMatch(prev => prev ? {
           ...prev, logs,
           match: { ...prev.match, current_round: newRound },
@@ -226,15 +249,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const { match, mode, players, roundWins } = activeMatch;
     const newRound = match.current_round + 1;
     await matchesDb.advanceRound(match.id);
-    const ctx = buildContext(activeMatch.logs, players, '', newRound, activeMatch.roundBased, roundWins);
+    const ctx = buildContext(activeMatch.logs, players, '', newRound, mode.rules.round_scoped_scores ?? false, roundWins);
     const cons = evaluateRules(mode.rules, 'on_round_advanced', ctx);
     if (cons && cons.action === 'END_MATCH') {
       const wId = winnerId(cons, ctx, '');
       const hash = await signMatch(match.id, activeMatch.logs);
       await matchesDb.finishMatch(match.id, hash, wId, match.current_round);
-      setActiveMatch(prev => prev ? {
-        ...prev, match: { ...prev.match, status: 'finished' }, hash, winnerId: wId,
-      } : prev);
+      if (mode.rules.auto_reset) {
+        const nm = await matchesDb.createMatch(mode.id, mode.name, mode.name);
+        const np = await Promise.all(players.map(p => playersDb.addPlayer(nm.id, p.name)));
+        showToast({ msg: `${players.find(p => p.id === wId)?.name} wins · resetting`, tone: 'success', icon: 'trophy' });
+        setActiveMatch({ match: nm, mode, players: np, logs: [], roundWins: {}, roundBased: activeMatch.roundBased, paired: activeMatch.paired });
+      } else {
+        setActiveMatch(prev => prev ? {
+          ...prev, match: { ...prev.match, status: 'finished' }, hash, winnerId: wId,
+        } : prev);
+      }
       return;
     }
     setActiveMatch(prev => prev ? { ...prev, match: { ...prev.match, current_round: newRound } } : prev);
@@ -244,7 +274,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const rematch = useCallback(async () => {
     if (!activeMatch) return;
     const { mode, players } = activeMatch;
-    const match = await matchesDb.createMatch(mode.id, mode.game_id, mode.name);
+    const match = await matchesDb.createMatch(mode.id, mode.name, mode.name);
     const newPlayers = await Promise.all(players.map(p => playersDb.addPlayer(match.id, p.name)));
     setActiveMatch({
       match, mode, players: newPlayers, logs: [],
@@ -252,6 +282,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     showToast({ msg: 'Rematch · roster reset to 0', tone: 'success', icon: 'reset' });
   }, [activeMatch, showToast]);
+
+  const finishMatchEarly = useCallback(async () => {
+    if (!activeMatch) return;
+    const { match, players, roundWins, logs } = activeMatch;
+    const topWId = [...players].sort(
+      (a, b) => (roundWins[b.id] || 0) - (roundWins[a.id] || 0)
+    )[0]?.id ?? '';
+    const hash = await signMatch(match.id, logs);
+    await matchesDb.finishMatch(match.id, hash, topWId, match.current_round);
+    setActiveMatch(prev => prev ? {
+      ...prev, match: { ...prev.match, status: 'finished' }, hash, winnerId: topWId,
+    } : prev);
+  }, [activeMatch]);
 
   const endToHome = useCallback(() => {
     setActiveMatch(null);
@@ -277,7 +320,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       games, modes, loadLibrary, createGame, renameGame, deleteGame,
       createMode, updateMode, deleteMode,
       activeMatch, matches, loadMatches,
-      startMatch, addPoint, nextRound, rematch, endToHome, confirmQuit, wipeAll,
+      startMatch, addPoint, nextRound, rematch, finishMatchEarly, endToHome, confirmQuit, wipeAll,
+      roundWinEvent, clearRoundWinEvent,
       toast, showToast,
     }}>
       {children}

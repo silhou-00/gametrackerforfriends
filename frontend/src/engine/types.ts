@@ -27,6 +27,7 @@ export interface Rule {
 export interface RulesConfig {
   rules: Rule[];
   auto_reset?: boolean;
+  round_scoped_scores?: boolean;
 }
 
 export interface EvalContext {

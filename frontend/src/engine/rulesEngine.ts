@@ -101,11 +101,11 @@ export function buildContext(
   players: { id: string }[],
   actingId: string,
   round: number,
-  roundBased: boolean,
+  scopeToRound: boolean,
   roundWins: Record<string, number>
 ): EvalContext {
   const scoreOf = (pid: string) => {
-    if (roundBased) {
+    if (scopeToRound) {
       return logs
         .filter(l => l.player_id === pid && l.round === round)
         .reduce((s, l) => s + l.delta_value, 0);
@@ -119,7 +119,7 @@ export function buildContext(
   const acting = scores.find(x => x.id === actingId);
 
   const rank = (x: { id: string; s: number }) =>
-    roundBased ? (roundWins[x.id] || 0) * 1e6 + x.s : x.s;
+    (roundWins[x.id] || 0) * 1e6 + x.s;
   const leader = scores.reduce(
     (m, x) => (rank(x) > rank(m) ? x : m),
     scores[0] || { id: '', s: 0 }

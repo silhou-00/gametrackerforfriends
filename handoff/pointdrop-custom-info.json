@@ -1,0 +1,9 @@
+{
+  "rtm_presence_user": "pointdrop-server",
+  "fields": {
+    "match_id": "unique match ID string",
+    "players": "comma-separated player names e.g. Alice, Bob",
+    "mode": "game mode name e.g. Standard"
+  },
+  "note": "Pushed via Agora RTM user-presence when a match starts. Agent should read from context.presence['pointdrop-server']."
+}

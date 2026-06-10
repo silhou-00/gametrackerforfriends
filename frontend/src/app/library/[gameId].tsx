@@ -33,7 +33,12 @@ const SUBJECTS = {
   'player.roundWins': 'Rounds won',
 };
 const OPERATORS = {
-  EQ: '=', GT: '>', GTE: '≥', LT: '<', LTE: '≤', MOD: 'mod',
+  GTE: '≥  reaches',
+  GT:  '>  exceeds',
+  EQ:  '=  exactly',
+  LTE: '≤  at or under',
+  LT:  '<  below',
+  MOD: '÷  every multiple of',
 };
 const CONSEQUENCES = {
   END_MATCH:     { label: 'End the match',      needsValue: false, needsWinner: true },
@@ -55,6 +60,42 @@ const newRule = (): Rule => ({
   consequence: { action: 'END_MATCH', winner: 'acting' },
 });
 
+function SentenceChip({ label, active, onPress }: {
+  label: string; active: boolean; onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [mm.sentChip, active && mm.sentChipActive, pressed && { opacity: 0.8 }]}
+    >
+      <Text style={[T.smallBold, { color: active ? C.primary : C.ink, flexShrink: 1 }]} numberOfLines={2}>
+        {label}
+      </Text>
+      <Text style={{ color: active ? C.primary : C.ink35, fontSize: 10, marginLeft: 3 }}>▾</Text>
+    </Pressable>
+  );
+}
+
+function HelpGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <View style={{ marginBottom: 22 }}>
+      <Text style={[T.label, { color: C.ink50, textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 10 }]}>
+        {title}
+      </Text>
+      {children}
+    </View>
+  );
+}
+
+function HelpRow({ bold, desc }: { bold: string; desc: string }) {
+  return (
+    <View style={{ marginBottom: 10 }}>
+      <Text style={[T.bodyBold, { color: C.ink }]}>{bold}</Text>
+      <Text style={[T.small, { color: C.ink70, marginTop: 2, lineHeight: 18 }]}>{desc}</Text>
+    </View>
+  );
+}
+
 function ModeModal({
   gameId,
   editMode,
@@ -70,11 +111,64 @@ function ModeModal({
     editMode?.rules?.rules?.map((r: any) => ({ id: r.id || uid('r'), ...r })) || [newRule()]
   );
   const [autoReset, setAutoReset] = useState(editMode?.rules?.auto_reset || false);
+  const [roundScoped, setRoundScoped] = useState(editMode?.rules?.round_scoped_scores || false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [activeField, setActiveField] = useState<{ rIdx: number; field: string; cIdx?: number } | null>(null);
+
+  const isActive = (rIdx: number, field: string, cIdx?: number) =>
+    activeField?.rIdx === rIdx && activeField?.field === field && activeField?.cIdx === cIdx;
+
+  const toggleField = (rIdx: number, field: string, cIdx?: number) =>
+    setActiveField(prev =>
+      prev && prev.rIdx === rIdx && prev.field === field && prev.cIdx === cIdx
+        ? null : { rIdx, field, cIdx }
+    );
+
+  const updateTrigger = (rIdx: number, v: string) =>
+    setRules(rs => rs.map((r, i) => i === rIdx ? { ...r, trigger_event: v as any } : r));
+
+  const toggleLogicalGate = (rIdx: number) =>
+    setRules(rs => rs.map((r, i) => i === rIdx ? {
+      ...r, logical_gate: r.logical_gate === 'AND' ? 'OR' as const : 'AND' as const,
+    } : r));
+
+  const updateConsequence = (rIdx: number, v: string, meta: typeof CONSEQUENCES[keyof typeof CONSEQUENCES]) =>
+    setRules(rs => rs.map((r, i) => i === rIdx ? {
+      ...r,
+      consequence: {
+        action: v as any,
+        ...(meta.needsWinner ? { winner: 'acting' as const } : {}),
+        ...(meta.needsValue ? { value: 0 } : {}),
+      },
+    } : r));
+
+  const updateConsequenceValue = (rIdx: number, value: number) =>
+    setRules(rs => rs.map((r, i) => i === rIdx ? {
+      ...r, consequence: { ...r.consequence, value },
+    } : r));
+
+  const updateCond = (rIdx: number, cIdx: number, field: string, value: any) =>
+    setRules(rs => rs.map((r, i) => i === rIdx ? {
+      ...r,
+      conditions: r.conditions.map((c, ci) => ci === cIdx ? { ...c, [field]: value } : c),
+    } : r));
+
+  const addCond = (rIdx: number) =>
+    setRules(rs => rs.map((r, i) => i === rIdx ? {
+      ...r,
+      conditions: [...r.conditions, { subject: 'player.score' as const, operator: 'GT' as const, threshold: 0 }],
+    } : r));
+
+  const removeCond = (rIdx: number, cIdx: number) =>
+    setRules(rs => rs.map((r, i) => i === rIdx ? {
+      ...r,
+      conditions: r.conditions.filter((_, ci) => ci !== cIdx),
+    } : r));
 
   const save = async () => {
     if (!name.trim()) { showToast({ msg: 'Name the mode first', tone: 'warn', icon: 'close' }); return; }
     if (!rules.length) { showToast({ msg: 'Add at least one rule', tone: 'warn', icon: 'close' }); return; }
-    const payload: RulesConfig = { rules, auto_reset: autoReset };
+    const payload: RulesConfig = { rules, auto_reset: autoReset, round_scoped_scores: roundScoped };
     if (editMode) {
       await updateMode(editMode.id, { name: name.trim(), rules: payload });
       showToast({ msg: `"${name.trim()}" updated`, tone: 'success', icon: 'check' });
@@ -85,131 +179,277 @@ function ModeModal({
     onClose();
   };
 
-  return (
-    <Modal open onClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={mm.header}>
-          <Text style={[T.h2, { color: C.ink, flex: 1 }]}>{editMode ? 'Edit mode' : 'New mode'}</Text>
-          <Pressable onPress={onClose} style={mm.closeBtn}>
-            <Icon name="close" size={18} color={C.ink70} />
-          </Pressable>
-        </View>
-        <ScrollView style={{ maxHeight: 500 }} contentContainerStyle={mm.body} showsVerticalScrollIndicator={false}>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="Mode name — e.g. First to 5"
-            placeholderTextColor={C.ink35}
-            style={mm.input}
-            autoFocus
-          />
-          <Ornament label="Build the rules" />
+  const preview = describeMode({ rules, auto_reset: autoReset });
 
-          {/* Template chips */}
-          <View style={mm.chips}>
-            {TEMPLATES.map(t => (
-              <Pressable key={t.label} onPress={() => setRules(r => [...r, ...t.make().map(x => ({ ...x, id: uid('r') }))])}
-                style={({ pressed }) => [mm.chip, pressed && { opacity: 0.8 }]}>
-                <Text style={[T.smallBold, { color: C.ink70 }]}>+ {t.label}</Text>
+  return (
+    <Modal open fullPage onClose={onClose}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+
+        {/* ── HELP VIEW ──────────────────────────────────────── */}
+        {showHelp ? (
+          <>
+            <View style={mm.header}>
+              <Pressable onPress={() => setShowHelp(false)} style={mm.closeBtn} hitSlop={6}>
+                <Text style={{ fontFamily: 'RobotoSlab_800ExtraBold', fontSize: 16, color: C.ink70 }}>←</Text>
               </Pressable>
-            ))}
+              <Text style={[T.h2, { color: C.ink, flex: 1, marginLeft: 10 }]}>How rules work</Text>
+            </View>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+              <View style={mm.helpExplain}>
+                <Text style={[T.small, { color: C.ink70, lineHeight: 20 }]}>
+                  Each rule is a sentence:{' '}
+                  <Text style={{ color: C.primary, fontFamily: 'Lato_700Bold' }}>When</Text> something happens →{' '}
+                  <Text style={{ color: C.primary, fontFamily: 'Lato_700Bold' }}>if</Text> a number check passes →{' '}
+                  <Text style={{ color: C.primary, fontFamily: 'Lato_700Bold' }}>then</Text> do something.
+                </Text>
+              </View>
+
+              <HelpGroup title="WHEN — Triggers">
+                <HelpRow bold="A point is scored" desc="Fires on every + or − tap and on voice commands." />
+                <HelpRow bold="A round ends" desc="Fires when the Next Round button is tapped." />
+                <HelpRow bold="A round is won" desc="Fires automatically after a 'Win the round' consequence." />
+              </HelpGroup>
+
+              <HelpGroup title="IF — Subjects (what to measure)">
+                <HelpRow bold="Scorer's total" desc="The acting player's current score (this round only in round-based modes)." />
+                <HelpRow bold="Current round" desc="The round number the match is on." />
+                <HelpRow bold="Top rival score" desc="The highest score among all other players." />
+                <HelpRow bold="Rounds won" desc="How many rounds the acting player has won." />
+              </HelpGroup>
+
+              <HelpGroup title="IF — Operators (the check)">
+                <HelpRow bold="≥  reaches" desc="True when subject hits this value or higher. Use for win conditions." />
+                <HelpRow bold=">  exceeds" desc="True when subject goes strictly above. Use for bust penalties." />
+                <HelpRow bold="=  exactly" desc="True only at this exact value. Risky if points can skip the number." />
+                <HelpRow bold="≤  at or under" desc="True when subject is this value or lower." />
+                <HelpRow bold="<  below" desc="True when subject is strictly less than this value." />
+                <HelpRow bold="÷  every multiple of" desc="True when subject divides evenly — e.g. every 5th point scored." />
+              </HelpGroup>
+
+              <HelpGroup title="THEN — Consequences">
+                <HelpRow bold="End the match" desc="Locks scoring and declares a winner." />
+                <HelpRow bold="Win the round" desc="Awards the round, round scores reset to 0, round number advances." />
+                <HelpRow bold="Set scorer's total" desc="Forces score to a specific number. Classic bust penalty (e.g. set to 15)." />
+                <HelpRow bold="Adjust scorer by" desc="Adds or subtracts a bonus/penalty on top of current score." />
+                <HelpRow bold="Eliminate scorer" desc="Marks the player as eliminated." />
+              </HelpGroup>
+            </ScrollView>
+          </>
+        ) : (
+
+        /* ── BUILDER VIEW ──────────────────────────────────── */
+        <>
+          <View style={mm.header}>
+            <Text style={[T.h2, { color: C.ink, flex: 1 }]}>{editMode ? 'Edit mode' : 'New mode'}</Text>
+            <Pressable onPress={() => setShowHelp(true)} style={[mm.closeBtn, { marginRight: 8 }]} hitSlop={6}>
+              <Text style={{ fontFamily: 'RobotoSlab_800ExtraBold', fontSize: 15, color: C.ink70 }}>?</Text>
+            </Pressable>
+            <Pressable onPress={onClose} style={mm.closeBtn} hitSlop={6}>
+              <Icon name="close" size={18} color={C.ink70} />
+            </Pressable>
           </View>
 
-          {/* Rule cards */}
-          <View style={mm.ruleList}>
-            {rules.map((r, i) => (
-              <View key={r.id || i} style={mm.ruleCard}>
-                <View style={mm.ruleCardHeader}>
-                  <View style={mm.ruleNum}><Text style={{ fontFamily: 'RobotoSlab_800ExtraBold', fontSize: 11, color: C.primary }}>{i + 1}</Text></View>
-                  <Text style={[T.label, { color: C.ink50, textTransform: 'uppercase', flex: 1 }]}>Trigger</Text>
-                  <Pressable onPress={() => setRules(rs => rs.filter((_, j) => j !== i))}>
-                    <Icon name="trash" size={16} color={C.ink35} />
-                  </Pressable>
-                </View>
-                <View style={mm.selectRow}>
-                  {Object.entries(TRIGGERS).map(([v, l]) => (
-                    <Pressable key={v} onPress={() => setRules(rs => rs.map((x, j) => j === i ? { ...x, trigger_event: v as any } : x))}
-                      style={[mm.selectOpt, r.trigger_event === v && mm.selectOptActive]}>
-                      <Text style={[T.caption, { color: r.trigger_event === v ? C.primary : C.ink50 }]}>{l}</Text>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={mm.body} showsVerticalScrollIndicator={false}>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Mode name — e.g. First to 5"
+              placeholderTextColor={C.ink35}
+              style={mm.input}
+            />
+
+            <View style={mm.descPreview}>
+              <Text style={[T.caption, { color: C.ink50, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 5 }]}>
+                How it plays
+              </Text>
+              <Text style={[T.bodyBold, { color: rules.length ? C.ink70 : C.ink35 }]}>
+                {rules.length ? preview : 'Build rules below to see a description'}
+              </Text>
+            </View>
+
+            <Ornament label="Build the rules" />
+
+            <View style={mm.chips}>
+              {TEMPLATES.map(t => (
+                <Pressable key={t.label} onPress={() => setRules(r => [...r, ...t.make().map(x => ({ ...x, id: uid('r') }))])}
+                  style={({ pressed }) => [mm.chip, pressed && { opacity: 0.8 }]}>
+                  <Text style={[T.smallBold, { color: C.ink70 }]}>+ {t.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={mm.ruleList}>
+              {rules.map((r, i) => (
+                <View key={r.id || i} style={mm.ruleCard}>
+                  <View style={mm.ruleCardHeader}>
+                    <View style={mm.ruleNum}>
+                      <Text style={{ fontFamily: 'RobotoSlab_800ExtraBold', fontSize: 11, color: C.primary }}>{i + 1}</Text>
+                    </View>
+                    <Text style={[T.smallBold, { color: C.ink50, flex: 1, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Rule {i + 1}</Text>
+                    <Pressable onPress={() => setRules(rs => rs.filter((_, j) => j !== i))} hitSlop={6}>
+                      <Icon name="trash" size={16} color={C.ink35} />
                     </Pressable>
-                  ))}
-                </View>
-                <Text style={[T.label, { color: C.ink50, textTransform: 'uppercase', marginVertical: 8 }]}>If…</Text>
-                {r.conditions.map((c, ci) => (
-                  <View key={ci} style={mm.condRow}>
-                    <View style={[mm.miniSelect, { flex: 2 }]}>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                        {Object.entries(SUBJECTS).map(([v, l]) => (
-                          <Pressable key={v} onPress={() => setRules(rs => rs.map((x, j) => j === i ? { ...x, conditions: x.conditions.map((k, ki) => ki === ci ? { ...k, subject: v as any } : k) } : x))}
-                            style={[mm.miniOpt, c.subject === v && mm.miniOptActive]}>
-                            <Text style={[T.caption, { color: c.subject === v ? C.primary : C.ink50 }]}>{l}</Text>
-                          </Pressable>
-                        ))}
-                      </ScrollView>
-                    </View>
-                    <View style={mm.opSelect}>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                        {Object.entries(OPERATORS).map(([v, g]) => (
-                          <Pressable key={v} onPress={() => setRules(rs => rs.map((x, j) => j === i ? { ...x, conditions: x.conditions.map((k, ki) => ki === ci ? { ...k, operator: v as any } : k) } : x))}
-                            style={[mm.miniOpt, c.operator === v && mm.miniOptActive]}>
-                            <Text style={[T.bodyBold, { color: c.operator === v ? C.primary : C.ink50 }]}>{g}</Text>
-                          </Pressable>
-                        ))}
-                      </ScrollView>
-                    </View>
-                    <TextInput
-                      value={String(c.threshold)}
-                      onChangeText={v => setRules(rs => rs.map((x, j) => j === i ? { ...x, conditions: x.conditions.map((k, ki) => ki === ci ? { ...k, threshold: isNaN(Number(v)) ? v : Number(v) } : k) } : x))}
-                      keyboardType="numeric"
-                      style={mm.numBox}
+                  </View>
+
+                  {/* WHEN */}
+                  <View style={mm.sentRow}>
+                    <Text style={mm.sentWord}>When</Text>
+                    <SentenceChip
+                      label={TRIGGERS[r.trigger_event as keyof typeof TRIGGERS]}
+                      active={isActive(i, 'trigger')}
+                      onPress={() => toggleField(i, 'trigger')}
                     />
                   </View>
-                ))}
-                <Pressable onPress={() => setRules(rs => rs.map((x, j) => j === i ? { ...x, conditions: [...x.conditions, { subject: 'player.score', operator: 'GT', threshold: 0 }] } : x))}
-                  style={mm.addCondBtn}>
-                  <Text style={[T.smallBold, { color: C.ink50 }]}>+ Add condition</Text>
-                </Pressable>
+                  {isActive(i, 'trigger') && (
+                    <View style={mm.inlineOpts}>
+                      {Object.entries(TRIGGERS).map(([v, l]) => (
+                        <Pressable key={v} onPress={() => { updateTrigger(i, v); setActiveField(null); }}
+                          style={[mm.selectOpt, r.trigger_event === v && mm.selectOptActive]}>
+                          <Text style={[T.caption, { color: r.trigger_event === v ? C.primary : C.ink50 }]}>{l}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
 
-                <Text style={[T.label, { color: C.ink50, textTransform: 'uppercase', marginVertical: 8 }]}>Then…</Text>
-                <View style={mm.selectRow}>
-                  {Object.entries(CONSEQUENCES).map(([v, m]) => (
-                    <Pressable key={v} onPress={() => setRules(rs => rs.map((x, j) => j === i ? { ...x, consequence: { action: v as any, ...(m.needsWinner ? { winner: 'acting' as const } : {}), ...(m.needsValue ? { value: 0 } : {}) } } : x))}
-                      style={[mm.selectOpt, r.consequence.action === v && mm.selectOptActive]}>
-                      <Text style={[T.caption, { color: r.consequence.action === v ? C.primary : C.ink50 }]}>{m.label}</Text>
-                    </Pressable>
+                  {/* Gate toggle (2+ conditions) */}
+                  {r.conditions.length >= 2 && (
+                    <View style={mm.gateRow}>
+                      <Text style={[T.caption, { color: C.ink50 }]}>Match</Text>
+                      <Pressable onPress={() => toggleLogicalGate(i)} style={mm.gateChip}>
+                        <Text style={[T.smallBold, { color: C.primary }]}>
+                          {r.logical_gate === 'AND' ? 'all conditions' : 'any condition'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {/* IF rows */}
+                  {r.conditions.map((c, ci) => (
+                    <View key={ci}>
+                      <View style={mm.sentRow}>
+                        <Text style={mm.sentWord}>{ci === 0 ? 'if' : r.logical_gate === 'AND' ? 'and' : 'or'}</Text>
+                        <SentenceChip
+                          label={SUBJECTS[c.subject as keyof typeof SUBJECTS]}
+                          active={isActive(i, 'subject', ci)}
+                          onPress={() => toggleField(i, 'subject', ci)}
+                        />
+                        <SentenceChip
+                          label={OPERATORS[c.operator as keyof typeof OPERATORS]}
+                          active={isActive(i, 'operator', ci)}
+                          onPress={() => toggleField(i, 'operator', ci)}
+                        />
+                        <TextInput
+                          value={String(c.threshold)}
+                          onChangeText={v => updateCond(i, ci, 'threshold', isNaN(Number(v)) ? v : Number(v))}
+                          keyboardType="numeric"
+                          style={mm.inlineNum}
+                        />
+                        {r.conditions.length > 1 && (
+                          <Pressable onPress={() => removeCond(i, ci)} hitSlop={8}>
+                            <Icon name="close" size={14} color={C.ink35} />
+                          </Pressable>
+                        )}
+                      </View>
+                      {isActive(i, 'subject', ci) && (
+                        <View style={mm.inlineOpts}>
+                          {Object.entries(SUBJECTS).map(([v, l]) => (
+                            <Pressable key={v} onPress={() => { updateCond(i, ci, 'subject', v); setActiveField(null); }}
+                              style={[mm.selectOpt, c.subject === v && mm.selectOptActive]}>
+                              <Text style={[T.caption, { color: c.subject === v ? C.primary : C.ink50 }]}>{l}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      )}
+                      {isActive(i, 'operator', ci) && (
+                        <View style={mm.inlineOpts}>
+                          {Object.entries(OPERATORS).map(([v, l]) => (
+                            <Pressable key={v} onPress={() => { updateCond(i, ci, 'operator', v); setActiveField(null); }}
+                              style={[mm.selectOpt, c.operator === v && mm.selectOptActive]}>
+                              <Text style={[T.caption, { color: c.operator === v ? C.primary : C.ink50 }]}>{l}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      )}
+                    </View>
                   ))}
+
+                  <Pressable onPress={() => addCond(i)} style={mm.addCondInline}>
+                    <Text style={[T.smallBold, { color: C.ink50 }]}>+ add condition</Text>
+                  </Pressable>
+
+                  {/* THEN */}
+                  <View style={[mm.sentRow, { marginTop: 10 }]}>
+                    <Text style={mm.sentWord}>then</Text>
+                    <SentenceChip
+                      label={CONSEQUENCES[r.consequence.action as keyof typeof CONSEQUENCES].label}
+                      active={isActive(i, 'consequence')}
+                      onPress={() => toggleField(i, 'consequence')}
+                    />
+                    {CONSEQUENCES[r.consequence.action as keyof typeof CONSEQUENCES].needsValue && (
+                      <TextInput
+                        value={String(r.consequence.value ?? 0)}
+                        onChangeText={v => updateConsequenceValue(i, isNaN(Number(v)) ? 0 : Number(v))}
+                        keyboardType="numeric"
+                        style={mm.inlineNum}
+                      />
+                    )}
+                  </View>
+                  {isActive(i, 'consequence') && (
+                    <View style={mm.inlineOpts}>
+                      {Object.entries(CONSEQUENCES).map(([v, m]) => (
+                        <Pressable key={v} onPress={() => { updateConsequence(i, v, m); setActiveField(null); }}
+                          style={[mm.selectOpt, r.consequence.action === v && mm.selectOptActive]}>
+                          <Text style={[T.caption, { color: r.consequence.action === v ? C.primary : C.ink50 }]}>{m.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
                 </View>
-              </View>
-            ))}
-            {!rules.length && (
-              <View style={mm.emptyRules}>
-                <Text style={[T.small, { color: C.ink50, textAlign: 'center' }]}>No rules. Add template above or blank rule below.</Text>
-              </View>
-            )}
-          </View>
-
-          <Pressable onPress={() => setRules(r => [...r, newRule()])} style={mm.addRuleBtn}>
-            <Text style={[T.bodyBold, { color: C.ink70 }]}>+ Add blank rule</Text>
-          </Pressable>
-
-          <Ornament />
-          <View style={mm.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={[T.bodyBold, { color: C.ink }]}>Auto-reset on win</Text>
-              <Text style={[T.small, { color: C.ink50, marginTop: 3 }]}>Archive &amp; re-spawn roster at 0</Text>
+              ))}
+              {!rules.length && (
+                <View style={mm.emptyRules}>
+                  <Text style={[T.small, { color: C.ink50, textAlign: 'center' }]}>No rules. Add template above or blank rule below.</Text>
+                </View>
+              )}
             </View>
-            <Switch
-              value={autoReset}
-              onValueChange={setAutoReset}
-              trackColor={{ true: C.primary, false: C.ink12 }}
-              thumbColor="#fff"
-            />
-          </View>
-        </ScrollView>
 
-        <View style={mm.footer}>
-          <Button full size="lg" onPress={save}>Save mode</Button>
-        </View>
+            <Pressable onPress={() => setRules(r => [...r, newRule()])} style={mm.addRuleBtn}>
+              <Text style={[T.bodyBold, { color: C.ink70 }]}>+ Add blank rule</Text>
+            </Pressable>
+
+            <Ornament />
+            <View style={mm.toggleRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={[T.bodyBold, { color: C.ink }]}>Round-scoped scores</Text>
+                <Text style={[T.small, { color: C.ink50, marginTop: 3 }]}>Rules evaluate against this round's score only</Text>
+              </View>
+              <Switch
+                value={roundScoped}
+                onValueChange={setRoundScoped}
+                trackColor={{ true: C.primary, false: C.ink12 }}
+                thumbColor="#fff"
+              />
+            </View>
+            <View style={[mm.toggleRow, { marginTop: 14 }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[T.bodyBold, { color: C.ink }]}>Auto-reset on win</Text>
+                <Text style={[T.small, { color: C.ink50, marginTop: 3 }]}>Archive &amp; re-spawn roster at 0</Text>
+              </View>
+              <Switch
+                value={autoReset}
+                onValueChange={setAutoReset}
+                trackColor={{ true: C.primary, false: C.ink12 }}
+                thumbColor="#fff"
+              />
+            </View>
+          </ScrollView>
+
+          <View style={mm.footer}>
+            <Button full size="lg" onPress={save}>Save mode</Button>
+          </View>
+        </>
+        )}
+
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -478,6 +718,16 @@ const mm = StyleSheet.create({
     borderRadius: 14, padding: 13, marginBottom: 16,
     fontFamily: 'Lato_700Bold', fontSize: 15, color: C.ink,
   },
+  descPreview: {
+    backgroundColor: C.bgSunk, borderRadius: 14,
+    padding: 14, marginBottom: 16,
+    borderWidth: 1, borderColor: C.line,
+  },
+  helpExplain: {
+    backgroundColor: C.primarySoft, borderRadius: 14,
+    padding: 14, marginBottom: 22,
+    borderWidth: 1, borderColor: '#B08A4F',
+  },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 14 },
   chip: {
     borderWidth: 1.5, borderColor: '#B08A4F', backgroundColor: C.warnSoft,
@@ -493,29 +743,52 @@ const mm = StyleSheet.create({
     width: 22, height: 22, borderRadius: 7,
     backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center',
   },
+  // Sentence builder
+  sentRow: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 6, marginBottom: 6, flexWrap: 'wrap',
+  },
+  sentWord: {
+    fontFamily: 'RobotoSlab_800ExtraBold', fontSize: 13,
+    color: C.ink35, minWidth: 36,
+  },
+  sentChip: {
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 1.5, borderColor: C.ink12, borderRadius: 10,
+    paddingHorizontal: 10, paddingVertical: 6,
+    backgroundColor: '#fff', flexShrink: 1,
+  },
+  sentChipActive: {
+    borderColor: C.primary, backgroundColor: C.primarySoft,
+  },
+  inlineOpts: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 6,
+    marginBottom: 8, marginLeft: 42,
+  },
+  inlineNum: {
+    width: 60, textAlign: 'center', borderWidth: 1.5, borderColor: C.ink12,
+    backgroundColor: '#fff', borderRadius: 10,
+    paddingVertical: 6, paddingHorizontal: 4,
+    fontFamily: 'RobotoSlab_800ExtraBold', fontSize: 14, color: C.ink,
+  },
+  gateRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginBottom: 6, marginLeft: 42,
+  },
+  gateChip: {
+    borderWidth: 1.5, borderColor: C.primary, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 5,
+    backgroundColor: C.primarySoft,
+  },
+  addCondInline: {
+    marginLeft: 42, marginTop: 4, marginBottom: 4,
+  },
   selectRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   selectOpt: {
     borderWidth: 1, borderColor: C.ink12, borderRadius: 8,
     paddingHorizontal: 8, paddingVertical: 6,
   },
   selectOptActive: { borderColor: C.primary, backgroundColor: C.primarySoft },
-  condRow: { flexDirection: 'row', gap: 6, alignItems: 'center', marginBottom: 6 },
-  miniSelect: { flexDirection: 'row', gap: 4 },
-  miniOpt: {
-    borderWidth: 1, borderColor: C.ink12, borderRadius: 8,
-    paddingHorizontal: 6, paddingVertical: 5, marginRight: 4,
-  },
-  miniOptActive: { borderColor: C.primary, backgroundColor: C.primarySoft },
-  opSelect: { flexDirection: 'row', gap: 4 },
-  numBox: {
-    width: 56, textAlign: 'center', borderWidth: 1.5, borderColor: C.ink12,
-    backgroundColor: C.surfaceAlt, borderRadius: 10,
-    padding: 9, fontFamily: 'RobotoSlab_800ExtraBold', fontSize: 15, color: C.ink,
-  },
-  addCondBtn: {
-    marginTop: 8, borderWidth: 1.5, borderColor: C.ink12, borderStyle: 'dashed',
-    borderRadius: 10, padding: 8, alignItems: 'center',
-  },
   emptyRules: {
     padding: 24, borderWidth: 1.5, borderColor: C.ink12,
     borderStyle: 'dashed', borderRadius: 14, alignItems: 'center',
